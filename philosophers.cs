@@ -1,174 +1,255 @@
 ﻿using System;
+using System.Diagnostics.Contracts;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Numerics;
 
 namespace DPProblem
 {
-    public static class Program
+    public class DinningPhilosophers : IDisposable
     {
-        private const int philosophersAmount = 4;
+        private const int philosophersAmount = 2;
 
-        // use integer to be able to use Interlocked:
-        private static int[] forks;
+        private int[] forks = Enumerable.Repeat(1, philosophersAmount).ToArray();
 
-        private static int[] eatenFood = new int[philosophersAmount];
+        private static object lockObject = new object();
 
-        private static int[] lastEatenFood = new int[philosophersAmount];
+        private const int FirstBigInteger = 2;
 
-        private static int[] thoughts = new int[philosophersAmount];
+        private long bigInteger = FirstBigInteger;
 
-        private static Timer threadingTimer;
+        private int[] eatenFood = new int[philosophersAmount];
 
-        private static DateTime startTime;
+        private int[] lastEatenFood = new int[philosophersAmount];
 
-        static Program()
+        private int[] thoughts = new int[philosophersAmount];
+
+	    private Timer threadingTimer;
+
+	    private Task[] philosophers;
+	    private DateTime startTime;
+
+		[Pure] private static int Left(int i) => i;
+		[Pure] private static int Right(int i) => (i + 1) % philosophersAmount;
+
+	    private void Think(int philosopher_inx)
         {
-            const int dueTime = 3000;
-            const int checkPeriod = 2000;
-            threadingTimer = new Timer(Observe, null, dueTime, checkPeriod);
-
-            forks = Enumerable.Repeat(1, philosophersAmount).ToArray();
-        }
-
-        public static void TakeFork(int fork_inx)
-        {
-            SpinWait.SpinUntil(()=>forks[fork_inx] == 1);
-            forks[fork_inx] = 0;
-        }
-
-        public static void PutFork(int fork_inx)
-        {
-            forks[fork_inx] = 1;
-        }
-
-        private static void Think(int philosopher_inx, ref int number)
-        {
-            const int modulus = 0b1000000 - 1;
-            int copy = number;
-            for (int delimiter = 2; delimiter * delimiter <= number; delimiter++)
-                while (copy % delimiter == 0)
-                    copy /= delimiter;
-            if (number % modulus == 0)
-                thoughts[philosopher_inx]++;
-            number = (number + 1) % modulus;
-        }
-
-        public static void DoPhilosopherDeadlock(int i)
-        {
-            int number = 1;
-            Console.WriteLine($"Philosopher {i + 1} starting");
-            while (true)
+            long original = bigInteger;
+            long number = original;
+            // find all fractions:
+            for (long delimiter = 2; delimiter * delimiter <= number; delimiter++)
+                while (number % delimiter == 0)
+                    number /= delimiter;
+            // take next or start over:
+            long next = original == long.MaxValue ? FirstBigInteger : original + 1;
+            // to make others work on the next number:
+            if (Interlocked.CompareExchange(ref bigInteger, next, original) == original) 
             {
-                Think(i, ref number);
-                TakeFork(i);
-                TakeFork((i + 1) % philosophersAmount);
-                eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
-                PutFork(i);
-                PutFork((i + 1) % philosophersAmount);
+                // this philosopher was first to do it:
+                thoughts[philosopher_inx]++;
             }
         }
 
-        public static void DoPhilosopherSimplestLock(int i)
+        private void RunDeadlock(int i, CancellationToken token)
         {
-            /*
-            This gives thoughts speed: 54609.62 t/sec.
-            Only one philosopher eats at a time. Additional time to go into kernel space:
-            */
-            int number = 1;
-            Console.WriteLine($"Philosopher {i + 1} starting");
+			void TakeFork(int fork)
+			{
+				// Here a philosopher eventually get a deadlock
+				SpinWait.SpinUntil(() => Interlocked.CompareExchange(ref forks[fork], 1, 0) == 0);
+			}
+
+			void PutFork(int fork) { forks[fork] = 1; }
+
+            Console.WriteLine($"P{i + 1} starting");
             while (true)
             {
-                Think(i, ref number);
+				TakeFork(Left(i));
+				TakeFork(Right(i));
+				eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
+				PutFork(Left(i));
+				PutFork(Right(i));
+                Think(i);
+
+				// stop when client requests:
+	            token.ThrowIfCancellationRequested();
+            }
+        }
+
+        private void RunStarvation(int i, CancellationToken token)
+        {
+			// TODO: 
+			// Take left fork and wait t time for the right fork to be available.
+			// If the right one is not available put down left and try again in t time.
+	        var waitTime = TimeSpan.FromMilliseconds(1000*i);
+
+	        bool TakeFork(int fork) => Interlocked.CompareExchange(ref forks[fork], 1, 0) == 0;
+	        bool WaitFork(int fork) => SpinWait.SpinUntil(() => TakeFork(fork), waitTime);
+			void PutFork(int fork) => forks[fork] = 1;
+
+            Console.WriteLine($"P{i + 1} starting");
+            while (true)
+            {
+	            bool hasForks = false;
+	            if (WaitFork(Left(i)))
+	            {
+					Console.WriteLine($"P{i+1} took left");
+		            if (TakeFork(Right(i)))
+			            hasForks = true;
+		            else
+						PutFork(Left(i));
+	            }
+	            if (!hasForks)
+	            {
+					Console.WriteLine($"P{i+1} doesn't have forks");
+					// here we can have starvation eventually as all philosophers take left
+					// fork and their right one is not available and repeat.
+					Thread.Sleep(waitTime);
+					continue;
+	            }
+				eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
+				PutFork(Left(i));
+				PutFork(Right(i));
+                Think(i);
+
+				// stop when client requests:
+	            token.ThrowIfCancellationRequested();
+            }
+        }
+
+        public void RunMonitor(int i, CancellationToken token)
+        {
+			void TakeFork(int fork_inx)
+			{
+				SpinWait.SpinUntil(()=>forks[fork_inx] == 1);
+				forks[fork_inx] = 0;
+			}
+
+			void PutFork(int fork_inx) { forks[fork_inx] = 1; }
+
+            Console.WriteLine($"P{i + 1} starting");
+            while (true)
+            {
                 lock(forks)
                 {
-                    TakeFork(i);
-                    TakeFork((i + 1) % philosophersAmount);
-                    eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
-                    PutFork(i);
-                    PutFork((i + 1) % philosophersAmount);
+					TakeFork(Left(i));
+					TakeFork(Right(i));
+					eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
+					PutFork(Left(i));
+					PutFork(Right(i));
                 }
+                Think(i);
+				// stop when client requests:
+	            token.ThrowIfCancellationRequested();
             }
         }
 
-        public static void DoPhilosopherInterlocked(int i)
+        public void RunInterlocked(int i, CancellationToken token)
         {
-            /*
-            This gives thoughts speed:  101238.20 t/sec
-            */
             void TakeForks()
             {
                 // This takes two forks if available or none (atomical) and does not go into kernel mode
                 SpinWait.SpinUntil(() =>
                 {
                     // try to take left and right fork if they are awailable:
-                    int left = Interlocked.CompareExchange(ref forks[i], 0, 1);
-                    int right = Interlocked.CompareExchange(ref forks[(i + 1)% philosophersAmount], 0, 1);
+                    int left = Interlocked.CompareExchange(ref forks[Left(i)], 0, 1);
+                    int right = Interlocked.CompareExchange(ref forks[Right(i)], 0, 1);
                     bool wereBothFree = left == 1 && right == 1;
                     if (wereBothFree)  
                         return true;
                     // else put the taken fork back if any:
-                    Interlocked.CompareExchange(ref forks[i], 1, 0);
-                    Interlocked.CompareExchange(ref forks[(i + 1)% philosophersAmount], 1, 0);
+                    Interlocked.CompareExchange(ref forks[Left(i)], 1, 0);
+                    Interlocked.CompareExchange(ref forks[Right(i)], 1, 0);
                     return false;
                 });
                 // at this point this philosopher has taken two forks
             }
             void PutForks() 
             {
-                forks[i] = 1;
-                forks[(i+1)%philosophersAmount] = 1;
+                forks[Left(i)] = 1;
+                forks[Right(i)] = 1;
             }
 
-            int number = 1;
-            Console.WriteLine($"Philosopher {i + 1} starting");
+            Console.WriteLine($"P{i + 1} starting");
             while (true)
             {
-                Think(i, ref number);
                 TakeForks();
                 eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
                 PutForks();
+                Think(i);
+				token.ThrowIfCancellationRequested();
             }
         }
 
-        private static void Observe(object state)
+        private void Observe(object state) 
         {
             for (int i = 0; i < philosophersAmount; i++)
             {
                 if (lastEatenFood[i] == eatenFood[i])
-                    Console.WriteLine($"Philosopher {i + 1} starvation: last {lastEatenFood[i]}, now {eatenFood[i]}.");
+                    Console.WriteLine($"P{i + 1} didn't eat: {lastEatenFood[i]}-{eatenFood[i]}, thoughts: {thoughts[i]}, forks: {string.Join(' ', forks)}.");
                 lastEatenFood[i] = eatenFood[i];
             }
         }
 
-        public static void Main(string[] args)
+        public void Run()
         {
-            // Observer:
             Console.WriteLine("Starting...");
+
             startTime = DateTime.Now;
-            var philosophers = new Task[philosophersAmount];
+            const int dueTime = 3000;
+            const int checkPeriod = 2000;
+	        threadingTimer = new Timer(Observe, null, dueTime, checkPeriod);
+	        philosophers = new Task[philosophersAmount];
+
+            var cancelTokenSource = new CancellationTokenSource();
+
+	        // Action<int> create = (i) => RunDeadlock(i, cancelTokenSource.Token);
+	        Action<int> create = (i) => RunStarvation(i, cancelTokenSource.Token);
+	        // Action<int> create = (i) => RunMonitor(i, cancelTokenSource.Token);
+	        // Action<int> create = (i) => RunInterlocked(i, cancelTokenSource.Token);
             for (int i = 0; i < philosophersAmount; i++)
             {
                 int icopy = i;
-                // philosophers[i] = Task.Run(() => DoPhilosopherDeadlock(icopy));
-                // philosophers[i] = Task.Run(() => DoPhilosopherSimplestLock(icopy));
-                philosophers[i] = Task.Run(() => DoPhilosopherInterlocked(icopy));
+                // use thread pool to start a philosopher:
+                philosophers[i] = Task.Run(() => create(icopy), cancelTokenSource.Token);
+				Thread.Sleep(200*i);
             }
 
             Console.WriteLine("Press any key to exit...");
             Console.ReadLine();
-            for (int i = 0; i < philosophersAmount; i++) {
-                try { philosophers[0].Dispose(); } catch { };
+            cancelTokenSource.Cancel();
+            try
+            {
+	            const int timeToWaitMS = 3000;
+                Task.WaitAll(philosophers, timeToWaitMS);
+            }
+            catch (Exception e)
+            { 
+                Console.WriteLine("Exception: " + e.Message);
             }
             TimeSpan spentTime = DateTime.Now - startTime;
-            Console.WriteLine($"Time: {spentTime:g}");
-            Console.WriteLine($"Thoughts speed: {thoughts.Sum() / (spentTime.TotalSeconds):.00} t/sec");
             for (int i = 0; i < philosophersAmount; i++)
             {
                 Console.WriteLine($"P{i+1} {eatenFood[i]} eaten, {thoughts[i]} thoughts.");
             }
+            Console.WriteLine($"Time: {spentTime:g}");
+            Console.WriteLine($"Thoughts speed: {thoughts.Sum() / (spentTime.TotalSeconds):.00} t/sec");
+        }
 
-            Console.WriteLine("Exit");
+	    public void Dispose()
+	    {
+		    threadingTimer?.Dispose();
+	    }
+    }
+
+    public static class Program
+    {
+        public static void Main(string[] args)
+        {
+	        using (var dinner = new DinningPhilosophers())
+	        {
+				dinner.Run();
+	        }
         }
     }
 }
