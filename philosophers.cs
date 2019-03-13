@@ -9,7 +9,7 @@ namespace DPProblem
 {
     public class DinningPhilosophers : IDisposable
     {
-        private const int philosophersAmount = 2;
+        private const int philosophersAmount = 5;
 
         private int[] forks = Enumerable.Repeat(1, philosophersAmount).ToArray();
 
@@ -33,6 +33,11 @@ namespace DPProblem
 		[Pure] private static int Left(int i) => i;
 		[Pure] private static int Right(int i) => (i + 1) % philosophersAmount;
 
+	    private void Log(string message)
+	    {
+			Console.WriteLine($"{(DateTime.Now - startTime).TotalMilliseconds:000000.0}: {message}");
+	    }
+
 	    private void Think(int philosopher_inx)
         {
             long original = bigInteger;
@@ -53,19 +58,18 @@ namespace DPProblem
 
         private void RunDeadlock(int i, CancellationToken token)
         {
-			void TakeFork(int fork)
-			{
-				// Here a philosopher eventually get a deadlock
-				SpinWait.SpinUntil(() => Interlocked.CompareExchange(ref forks[fork], 1, 0) == 0);
-			}
+	        void TakeFork(int fork, int philosopher)
+	        {
+				Log($"P{philosopher+1} tries to take fork {fork}");
+				SpinWait.SpinUntil(() => Interlocked.CompareExchange(ref forks[fork], philosopher, 0) == 0);
+	        }
+			void PutFork(int fork) => forks[fork] = 0; 
 
-			void PutFork(int fork) { forks[fork] = 1; }
-
-            Console.WriteLine($"P{i + 1} starting");
+            Log($"P{i + 1} starting");
             while (true)
             {
-				TakeFork(Left(i));
-				TakeFork(Right(i));
+				TakeFork(Left(i), i);
+				TakeFork(Right(i), i);
 				eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
 				PutFork(Left(i));
 				PutFork(Right(i));
@@ -87,13 +91,13 @@ namespace DPProblem
 	        bool WaitFork(int fork) => SpinWait.SpinUntil(() => TakeFork(fork), waitTime);
 			void PutFork(int fork) => forks[fork] = 1;
 
-            Console.WriteLine($"P{i + 1} starting");
+            Log($"P{i + 1} starting");
             while (true)
             {
 	            bool hasForks = false;
 	            if (WaitFork(Left(i)))
 	            {
-					Console.WriteLine($"P{i+1} took left");
+					Log($"P{i+1} took left");
 		            if (TakeFork(Right(i)))
 			            hasForks = true;
 		            else
@@ -101,7 +105,7 @@ namespace DPProblem
 	            }
 	            if (!hasForks)
 	            {
-					Console.WriteLine($"P{i+1} doesn't have forks");
+					Log($"P{i+1} doesn't have forks");
 					// here we can have starvation eventually as all philosophers take left
 					// fork and their right one is not available and repeat.
 					Thread.Sleep(waitTime);
@@ -127,7 +131,7 @@ namespace DPProblem
 
 			void PutFork(int fork_inx) { forks[fork_inx] = 1; }
 
-            Console.WriteLine($"P{i + 1} starting");
+            Log($"P{i + 1} starting");
             while (true)
             {
                 lock(forks)
@@ -152,7 +156,7 @@ namespace DPProblem
                 SpinWait.SpinUntil(() =>
                 {
                     // try to take left and right fork if they are awailable:
-                    int left = Interlocked.CompareExchange(ref forks[Left(i)], 0, 1);
+                    int left = Interlocked.CompareExchange(ref forks[Left(i)], 0, 1);  
                     int right = Interlocked.CompareExchange(ref forks[Right(i)], 0, 1);
                     bool wereBothFree = left == 1 && right == 1;
                     if (wereBothFree)  
@@ -170,7 +174,7 @@ namespace DPProblem
                 forks[Right(i)] = 1;
             }
 
-            Console.WriteLine($"P{i + 1} starting");
+            Log($"P{i + 1} starting");
             while (true)
             {
                 TakeForks();
@@ -186,16 +190,16 @@ namespace DPProblem
             for (int i = 0; i < philosophersAmount; i++)
             {
                 if (lastEatenFood[i] == eatenFood[i])
-                    Console.WriteLine($"P{i + 1} didn't eat: {lastEatenFood[i]}-{eatenFood[i]}, thoughts: {thoughts[i]}, forks: {string.Join(' ', forks)}.");
+                    Log($"P{i + 1} didn't eat: {lastEatenFood[i]}-{eatenFood[i]}, thoughts: {thoughts[i]}, forks: {string.Join(' ', forks)}.");
                 lastEatenFood[i] = eatenFood[i];
             }
         }
 
         public void Run()
         {
-            Console.WriteLine("Starting...");
-
             startTime = DateTime.Now;
+            Log("Starting...");
+
             const int dueTime = 3000;
             const int checkPeriod = 2000;
 	        threadingTimer = new Timer(Observe, null, dueTime, checkPeriod);
@@ -203,8 +207,8 @@ namespace DPProblem
 
             var cancelTokenSource = new CancellationTokenSource();
 
-	        // Action<int> create = (i) => RunDeadlock(i, cancelTokenSource.Token);
-	        Action<int> create = (i) => RunStarvation(i, cancelTokenSource.Token);
+	        Action<int> create = (i) => RunDeadlock(i, cancelTokenSource.Token);
+	        // Action<int> create = (i) => RunStarvation(i, cancelTokenSource.Token);
 	        // Action<int> create = (i) => RunMonitor(i, cancelTokenSource.Token);
 	        // Action<int> create = (i) => RunInterlocked(i, cancelTokenSource.Token);
             for (int i = 0; i < philosophersAmount; i++)
@@ -225,12 +229,12 @@ namespace DPProblem
             }
             catch (Exception e)
             { 
-                Console.WriteLine("Exception: " + e.Message);
+                Log("Exception: " + e.Message);
             }
             TimeSpan spentTime = DateTime.Now - startTime;
             for (int i = 0; i < philosophersAmount; i++)
             {
-                Console.WriteLine($"P{i+1} {eatenFood[i]} eaten, {thoughts[i]} thoughts.");
+                Log($"P{i+1} {eatenFood[i]} eaten, {thoughts[i]} thoughts.");
             }
             Console.WriteLine($"Time: {spentTime:g}");
             Console.WriteLine($"Thoughts speed: {thoughts.Sum() / (spentTime.TotalSeconds):.00} t/sec");
