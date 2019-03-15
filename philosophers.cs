@@ -5,6 +5,7 @@ using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Numerics;
+using System.Runtime.ExceptionServices;
 
 namespace DPProblem
 {
@@ -16,10 +17,6 @@ namespace DPProblem
         private int[] forks = Enumerable.Repeat(0, philosophersAmount).ToArray();
 
         private static object lockObject = new object();
-
-        private const int FirstBigInteger = 2;
-
-        private long bigInteger = FirstBigInteger;
 
         private int[] eatenFood = new int[philosophersAmount];
 
@@ -39,23 +36,17 @@ namespace DPProblem
 			Console.WriteLine($"{(DateTime.Now - startTime).TotalMilliseconds:000000.0}: {message}");
 	    }
 
-	    private void Think(int philosopher_inx)
+	    private void Think(int philosopherInx)
         {
-			// TODO: Make fraction of sum big prime number. Or find all primes within large interval (int.max)
-            long original = bigInteger;
-            long number = original;
-            // find all fractions:
-            for (long delimiter = 2; delimiter * delimiter <= number; delimiter++)
-                while (number % delimiter == 0)
-                    number /= delimiter;
-            // take next or start over:
-            long next = original == long.MaxValue ? FirstBigInteger : original + 1;
-            // to make others work on the next number:
-            if (Interlocked.CompareExchange(ref bigInteger, next, original) == original) 
-            {
-                // this philosopher was first to do it:
-                thoughts[philosopher_inx]++;
-            }
+			// A philosopher will find all primes not greater than 2^16-1 (~65ms)
+	        const int primesLimit = 0x1_0000 - 1;
+	        bool isPrime(long number) => 
+				Enumerable.Range(2, (int) Math.Sqrt(number) - 1).All(i => number % i != 0);
+	        int primes = 1; // for 2 is prime
+			const int rangeFirst = 3;
+	        primes += Enumerable.Range(rangeFirst, primesLimit - rangeFirst + 1).Count(i => isPrime(i));
+			if (primes > 0) // so that compiler won't optimize this out
+				thoughts[philosopherInx]++;
         }
 
 		void TakeFork(int fork, int philosopher) =>
@@ -84,7 +75,7 @@ namespace DPProblem
         {
 			// Take left fork and wait t time for the right fork to be available.
 			// If the right one is not available put down left and try again in t time.
-	        TimeSpan waitTime = TimeSpan.FromMilliseconds(0);
+	        TimeSpan waitTime = TimeSpan.FromMilliseconds(100);
 
 	        bool TakeFork(int fork) => 
 		        SpinWait.SpinUntil(() => Interlocked.CompareExchange(ref forks[fork], i+1, 0) == 0, waitTime);
@@ -111,6 +102,7 @@ namespace DPProblem
 					Thread.Sleep(waitTime);
 					continue;
 	            }
+				Log($"P{i+1} eats, forks {string.Join(' ', forks)}");
 				eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
 				PutFork(Left(i));
 				PutFork(Right(i));
@@ -189,11 +181,11 @@ namespace DPProblem
 
         private void Observe(object state) 
         {
-			// Log($"Forks {string.Join(' ', forks)}");
+			Log($"Forks {string.Join(' ', forks)}, food {string.Join(' ', eatenFood)}, thoughts {string.Join(' ', thoughts)}");
             for (int i = 0; i < philosophersAmount; i++)
             {
                 if (lastEatenFood[i] == eatenFood[i])
-                    Log($"P{i + 1} didn't eat: {lastEatenFood[i]}-{eatenFood[i]}, thoughts: {thoughts[i]}, forks: {string.Join(' ', forks)}.");
+                    Log($"P{i + 1} didn't eat: {lastEatenFood[i]}-{eatenFood[i]}.");
                 lastEatenFood[i] = eatenFood[i];
             }
 			Console.Out.Flush();
@@ -204,30 +196,29 @@ namespace DPProblem
             startTime = DateTime.Now;
             Log("Starting...");
 
-            const int dueTime = 3000;
+            const int dueTime = 1000;
             const int checkPeriod = 1000;
 	        threadingTimer = new Timer(Observe, null, dueTime, checkPeriod);
-	        var philosophers1 = new Thread[philosophersAmount];
+	        var philosophers = new Thread[philosophersAmount];
 
 	        var cancelTokenSource = new CancellationTokenSource();
 
-	        // Action<int> create = (i) => RunDeadlock(i, cancelTokenSource.Token);
-	        Action<int> create = (i) => RunStarvation(i, cancelTokenSource.Token);
-	        // Action<int> create = (i) => RunMonitor(i, cancelTokenSource.Token);
-	        // Action<int> create = (i) => RunInterlocked(i, cancelTokenSource.Token);
             for (int i = 0; i < philosophersAmount; i++)
             {
 	            int icopy = i;
-				philosophers1[i] = 
-					new Thread( () => RunStarvation(icopy, cancelTokenSource.Token))
+				philosophers[i] = 
+					// new Thread((otheri) => RunDeadlock((int)otheri, cancelTokenSource.Token))
+					new Thread((otheri) => RunStarvation((int)otheri, cancelTokenSource.Token))
+					// new Thread((otheri) => RunMonitor((int)otheri, cancelTokenSource.Token))
+					// new Thread((otheri) => RunInterlocked((int)i1, cancelTokenSource.Token))
 					{
 						IsBackground = true,
 						Priority = i % 2 == 0 ? ThreadPriority.Highest : ThreadPriority.Lowest
 					};
-				philosophers1[i].Start();
+				philosophers[i].Start(icopy);
 
                 // use thread pool to start a philosopher:
-	            // philosophers1[i] = Task.Run(() => create(icopy), cancelTokenSource.Token);
+	            // philosophers[i] = Task.Run(() => create(icopy), cancelTokenSource.Token);
 				// Thread.Sleep(200*i);
             }
 
@@ -237,9 +228,9 @@ namespace DPProblem
             try
             {
 	            const int timeToWaitMS = 3000;
-	            foreach (Thread thread in philosophers1)
+	            foreach (Thread thread in philosophers)
 		            thread.Join(timeToWaitMS);
-                // Task.WaitAll(philosophers1, timeToWaitMS);
+                // Task.WaitAll(philosophers, timeToWaitMS);
             }
             catch (Exception e)
             { 
@@ -265,6 +256,11 @@ namespace DPProblem
     {
         public static void Main(string[] args)
         {
+			AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+			{
+				Console.WriteLine("unhandled exception");
+				
+			};
 	        using (var dinner = new DinningPhilosophers())
 	        {
 				dinner.Run();

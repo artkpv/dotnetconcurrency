@@ -18,9 +18,11 @@ Originally formulated in 1965 by Edsger Dijkstra
 -- `ReaderWriterLockSlim`. How? Ones computes, others checks results.
 -- `Barrier`. Make all philosophers stop at %100 or smth.
 # Based on messages
-- Many semaphors
+- Many semaphors?
 - BlockingCollection<T> (producer / consumer) and thread local storage
-- Actors model (Orleans and Akka.Net)
+- Mention only - actors model (Orleans and Akka.Net)
+# Transactional model
+- (see art of multiproc. programming)
 # ? Comparing all solutions  
 
 
