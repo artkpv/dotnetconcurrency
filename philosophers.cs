@@ -11,7 +11,7 @@ namespace DPProblem
 {
     public class DinningPhilosophers : IDisposable
     {
-        private const int philosophersAmount = 2;
+        private const int philosophersAmount = 6;
 
 		// 0 - a fork is not taken, x - taken by x philosopher:
         private int[] forks = Enumerable.Repeat(0, philosophersAmount).ToArray();
@@ -102,7 +102,7 @@ namespace DPProblem
 					Thread.Sleep(waitTime);
 					continue;
 	            }
-				Log($"P{i+1} eats, forks {string.Join(' ', forks)}");
+				// Log($"P{i+1} eats, forks {string.Join(' ', forks)}");
 				eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
 				PutFork(Left(i));
 				PutFork(Right(i));
@@ -181,7 +181,7 @@ namespace DPProblem
 
         private void Observe(object state) 
         {
-			Log($"Forks {string.Join(' ', forks)}, food {string.Join(' ', eatenFood)}, thoughts {string.Join(' ', thoughts)}");
+			Log($"Food {string.Join(' ', eatenFood)}, thoughts {string.Join(' ', thoughts)}");
             for (int i = 0; i < philosophersAmount; i++)
             {
                 if (lastEatenFood[i] == eatenFood[i])
@@ -213,7 +213,7 @@ namespace DPProblem
 					// new Thread((otheri) => RunInterlocked((int)i1, cancelTokenSource.Token))
 					{
 						IsBackground = true,
-						Priority = i % 2 == 0 ? ThreadPriority.Highest : ThreadPriority.Lowest
+						Priority = i % 3 == 0 ? ThreadPriority.BelowNormal: ThreadPriority.AboveNormal
 					};
 				philosophers[i].Start(icopy);
 
