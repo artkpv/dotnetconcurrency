@@ -1,20 +1,22 @@
 ﻿using System;
+using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Linq;
 using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Numerics;
+using System.Reflection.Metadata.Ecma335;
 using System.Runtime.ExceptionServices;
 
 namespace DPProblem
 {
     public class DinningPhilosophers : IDisposable
     {
-        private const int philosophersAmount = 6;
+        private const int philosophersAmount = 4;
 
 		// 0 - a fork is not taken, x - taken by x philosopher:
-        private int[] forks = Enumerable.Repeat(0, philosophersAmount).ToArray();
+        private volatile int[] forks = Enumerable.Repeat(0, philosophersAmount).ToArray();
 
         private static object lockObject = new object();
 
@@ -49,10 +51,14 @@ namespace DPProblem
 				thoughts[philosopherInx]++;
         }
 
-		void TakeFork(int fork, int philosopher) =>
-			SpinWait.SpinUntil(() => Interlocked.CompareExchange(ref forks[fork], philosopher, 0) == 0);
+	    bool TakeFork(int fork, int philosopher, TimeSpan? waitTime = null)
+	    {
+		    return SpinWait.SpinUntil(() => Interlocked.CompareExchange(ref forks[fork], philosopher, 0) == 0,
+		                              waitTime ?? TimeSpan.FromMilliseconds(-1));
+	    }
 
-		void PutFork(int fork) => forks[fork] = 0; 
+	    void PutFork(int fork) => Debug.Assert(Interlocked.Exchange(ref forks[fork], 0) != 0);
+
 
         private void RunDeadlock(int i, CancellationToken token)
         {
@@ -73,43 +79,36 @@ namespace DPProblem
 
         private void RunStarvation(int i, CancellationToken token)
         {
-			// Take left fork and wait t time for the right fork to be available.
-			// If the right one is not available put down left and try again in t time.
-	        TimeSpan waitTime = TimeSpan.FromMilliseconds(100);
-
-	        bool TakeFork(int fork) => 
-		        SpinWait.SpinUntil(() => Interlocked.CompareExchange(ref forks[fork], i+1, 0) == 0, waitTime);
-			void PutFork(int fork) => forks[fork] = 0;
-
-            Log($"P{i + 1} starting");
+	        Log($"P{i + 1} starting, {Thread.CurrentThread.Name} {Thread.CurrentThread.ManagedThreadId}");
+			bool goodPhilosopher = i % 2 == 0;
             while (true)
             {
-	            bool hasForks = false;
-	            if (TakeFork(Left(i)))
-	            {
-					// Log($"P{i+1} took left");
-		            if (Interlocked.CompareExchange(ref forks[Right(i)], i+1, 0) == 0)
-			            hasForks = true;
-		            else
+	            bool hasTwoForks = false;
+				var waitTime = TimeSpan.FromMilliseconds(50);
+	            bool hasLeft = forks[Left(i)] == i + 1;
+				if (hasLeft || TakeFork(Left(i), i + 1, waitTime))
+				{
+					if (TakeFork(Right(i), i + 1, TimeSpan.Zero))
+						hasTwoForks = true;
+					else
 						PutFork(Left(i));
-	            }
-	            if (!hasForks)
-	            {
-					// Log($"P{i+1} T{Thread.CurrentThread.ManagedThreadId} w/o forks: forks {string.Join(' ', forks)}");
-
-					// here we can have starvation eventually as all philosophers take left
-					// fork and their right one is not available and repeat.
-					Thread.Sleep(waitTime);
+				} 
+				if (!hasTwoForks)
+				{
+					if (token.IsCancellationRequested) break;
 					continue;
-	            }
+				}
 				// Log($"P{i+1} eats, forks {string.Join(' ', forks)}");
 				eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
-				PutFork(Left(i));
+	            if (goodPhilosopher)
+	            {
+					Log($"P{i+1} just ate. Forks: {string.Join(' ', forks)}");
+		            PutFork(Left(i));
+	            }
 				PutFork(Right(i));
+
                 Think(i);
 
-				// stop when client requests:
-	            // token.ThrowIfCancellationRequested();
 	            if (token.IsCancellationRequested)
 		            break;
             }
@@ -185,7 +184,7 @@ namespace DPProblem
             for (int i = 0; i < philosophersAmount; i++)
             {
                 if (lastEatenFood[i] == eatenFood[i])
-                    Log($"P{i + 1} didn't eat: {lastEatenFood[i]}-{eatenFood[i]}.");
+                    Log($"P{i + 1} didn't eat: {lastEatenFood[i]}-{eatenFood[i]}. Forks {string.Join(' ', forks)}");
                 lastEatenFood[i] = eatenFood[i];
             }
 			Console.Out.Flush();
@@ -199,27 +198,19 @@ namespace DPProblem
             const int dueTime = 1000;
             const int checkPeriod = 1000;
 	        threadingTimer = new Timer(Observe, null, dueTime, checkPeriod);
-	        var philosophers = new Thread[philosophersAmount];
+	        var philosophers = new Task[philosophersAmount];
 
 	        var cancelTokenSource = new CancellationTokenSource();
 
             for (int i = 0; i < philosophersAmount; i++)
             {
 	            int icopy = i;
-				philosophers[i] = 
-					// new Thread((otheri) => RunDeadlock((int)otheri, cancelTokenSource.Token))
-					new Thread((otheri) => RunStarvation((int)otheri, cancelTokenSource.Token))
-					// new Thread((otheri) => RunMonitor((int)otheri, cancelTokenSource.Token))
-					// new Thread((otheri) => RunInterlocked((int)i1, cancelTokenSource.Token))
-					{
-						IsBackground = true,
-						Priority = i % 3 == 0 ? ThreadPriority.BelowNormal: ThreadPriority.AboveNormal
-					};
-				philosophers[i].Start(icopy);
-
-                // use thread pool to start a philosopher:
-	            // philosophers[i] = Task.Run(() => create(icopy), cancelTokenSource.Token);
-				// Thread.Sleep(200*i);
+	            philosophers[i] =
+		            // Task.Run((otheri) => RunDeadlock(icopy, cancelTokenSource.Token))
+		            Task.Run(() => RunStarvation(icopy, cancelTokenSource.Token))
+		            // Task.Run((otheri) => RunMonitor(icopy, cancelTokenSource.Token))
+		            // Task.Run((otheri) => RunInterlocked(icopy, cancelTokenSource.Token))
+		            ;
             }
 
             Console.WriteLine("Press any key to exit...");
@@ -228,9 +219,7 @@ namespace DPProblem
             try
             {
 	            const int timeToWaitMS = 3000;
-	            foreach (Thread thread in philosophers)
-		            thread.Join(timeToWaitMS);
-                // Task.WaitAll(philosophers, timeToWaitMS);
+                Task.WaitAll(philosophers, timeToWaitMS);
             }
             catch (Exception e)
             { 
