@@ -18,7 +18,7 @@ namespace DPProblem
 		// 0 - a fork is not taken, x - taken by x philosopher:
         private volatile int[] forks = Enumerable.Repeat(0, philosophersAmount).ToArray();
 
-        private static object lockObject = new object();
+        private static object mutex = new object();
 
         private int[] eatenFood = new int[philosophersAmount];
 
@@ -80,7 +80,6 @@ namespace DPProblem
         private void RunStarvation(int i, CancellationToken token)
         {
 	        Log($"P{i + 1} starting, {Thread.CurrentThread.Name} {Thread.CurrentThread.ManagedThreadId}");
-			bool goodPhilosopher = i % 2 == 0;
             while (true)
             {
 	            bool hasTwoForks = false;
@@ -88,7 +87,7 @@ namespace DPProblem
 	            bool hasLeft = forks[Left(i)] == i + 1;
 				if (hasLeft || TakeFork(Left(i), i + 1, waitTime))
 				{
-					if (TakeFork(Right(i), i + 1, TimeSpan.Zero))
+					if (forks[Right(i)] == i+1 || TakeFork(Right(i), i + 1, TimeSpan.Zero))
 						hasTwoForks = true;
 					else
 						PutFork(Left(i));
@@ -98,46 +97,18 @@ namespace DPProblem
 					if (token.IsCancellationRequested) break;
 					continue;
 				}
-				// Log($"P{i+1} eats, forks {string.Join(' ', forks)}");
 				eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
+				bool goodPhilosopher = i % 2 == 1;
 	            if (goodPhilosopher)
 	            {
-					Log($"P{i+1} just ate. Forks: {string.Join(' ', forks)}");
 		            PutFork(Left(i));
+					PutFork(Right(i));
 	            }
-				PutFork(Right(i));
 
                 Think(i);
 
 	            if (token.IsCancellationRequested)
 		            break;
-            }
-        }
-
-        public void RunMonitor(int i, CancellationToken token)
-        {
-			void TakeFork(int fork_inx)
-			{
-				SpinWait.SpinUntil(()=>forks[fork_inx] == 1);
-				forks[fork_inx] = 0;
-			}
-
-			void PutFork(int fork_inx) { forks[fork_inx] = 1; }
-
-            Log($"P{i + 1} starting");
-            while (true)
-            {
-                lock(forks)
-                {
-					TakeFork(Left(i));
-					TakeFork(Right(i));
-					eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
-					PutFork(Left(i));
-					PutFork(Right(i));
-                }
-                Think(i);
-				// stop when client requests:
-	            token.ThrowIfCancellationRequested();
             }
         }
 
@@ -178,6 +149,31 @@ namespace DPProblem
             }
         }
 
+        public void RunMonitor(int i, CancellationToken token)
+        {
+            Log($"P{i + 1} starting");
+            while (true)
+            {
+				try
+				{
+					Monitor.Enter(mutex);
+					TakeFork(Left(i), i+1);
+					TakeFork(Right(i), i+1);
+					eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
+					PutFork(Left(i));
+					PutFork(Right(i));
+	            }
+				finally
+	            {
+					Monitor.Exit(mutex);
+	            }
+                Think(i);
+
+	            if (token.IsCancellationRequested)
+		            break;
+            }
+        }
+
         private void Observe(object state) 
         {
 			Log($"Food {string.Join(' ', eatenFood)}, thoughts {string.Join(' ', thoughts)}");
@@ -208,8 +204,8 @@ namespace DPProblem
 	            philosophers[i] =
 		            // Task.Run((otheri) => RunDeadlock(icopy, cancelTokenSource.Token))
 		            Task.Run(() => RunStarvation(icopy, cancelTokenSource.Token))
-		            // Task.Run((otheri) => RunMonitor(icopy, cancelTokenSource.Token))
-		            // Task.Run((otheri) => RunInterlocked(icopy, cancelTokenSource.Token))
+		            // Task.Run(() => RunMonitor(icopy, cancelTokenSource.Token))
+		            // Task.Run(() => RunInterlocked(icopy, cancelTokenSource.Token))
 		            ;
             }
 
