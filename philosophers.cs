@@ -116,7 +116,8 @@ namespace DPProblem
 	    {
 		    while (true)
 		    {
-			    // This takes two forks if available or none (atomical) and does not go into kernel mod
+			    // This takes two forks if available or none (atomical) and does not go into kernel mod.
+				// Can lead to deadlock (all take their left forks repeatedly).
 			    SpinWait.SpinUntil(() =>
 			    {
 				    // try to take left and right fork if they are awailable:
