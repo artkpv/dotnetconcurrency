@@ -18,7 +18,7 @@ namespace DPProblem
 		// 0 - a fork is not taken, x - taken by x philosopher:
         private volatile int[] forks = Enumerable.Repeat(0, philosophersAmount).ToArray();
 
-        private static object mutex = new object();
+        private static object lockObject = new object();
 
         private int[] eatenFood = new int[philosophersAmount];
 
@@ -112,42 +112,61 @@ namespace DPProblem
             }
         }
 
-        public void RunInterlocked(int i, CancellationToken token)
-        {
-            void TakeForks()
-            {
-                // This takes two forks if available or none (atomical) and does not go into kernel mode
-                SpinWait.SpinUntil(() =>
-                {
-                    // try to take left and right fork if they are awailable:
-                    int left = Interlocked.CompareExchange(ref forks[Left(i)], 0, 1);  
-                    int right = Interlocked.CompareExchange(ref forks[Right(i)], 0, 1);
-                    bool wereBothFree = left == 1 && right == 1;
-                    if (wereBothFree)  
-                        return true;
-                    // else put the taken fork back if any:
-                    Interlocked.CompareExchange(ref forks[Left(i)], 1, 0);
-                    Interlocked.CompareExchange(ref forks[Right(i)], 1, 0);
-                    return false;
-                });
-                // at this point this philosopher has taken two forks
-            }
-            void PutForks() 
-            {
-                forks[Left(i)] = 1;
-                forks[Right(i)] = 1;
-            }
+	    public void RunInterlocked(int i, CancellationToken token)
+	    {
+		    while (true)
+		    {
+			    // This takes two forks if available or none (atomical) and does not go into kernel mod
+			    SpinWait.SpinUntil(() =>
+			    {
+				    // try to take left and right fork if they are awailable:
+				    int left = Interlocked.CompareExchange(ref forks[Left(i)], i+1, 0);
+				    int right = Interlocked.CompareExchange(ref forks[Right(i)], i+1, 0);
+				    bool wereBothFree = left == 0 && right == 0;
+				    if (wereBothFree)
+					    return true;
+				    // else put the taken fork back if any:
+				    Interlocked.CompareExchange(ref forks[Left(i)], 0, i+1);
+				    Interlocked.CompareExchange(ref forks[Right(i)], 0, i+1);
+				    return false;
+			    });
+			    // at this point this philosopher has taken two forks
 
-            Log($"P{i + 1} starting");
+			    eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
+			    PutFork(Left(i));
+			    PutFork(Right(i));
+			    Think(i);
+			    if (token.IsCancellationRequested) break;
+		    }
+	    }
+
+	    private static SpinLock spinLock = new SpinLock();
+	    private void RunSpinLock(int i, CancellationToken token)
+	    {
             while (true)
             {
-                TakeForks();
-                eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
-                PutForks();
+	            bool hasLock = false;
+	            try
+	            {
+		            spinLock.Enter(ref hasLock);
+		            forks[Left(i)] = i + 1;
+		            forks[Right(i)] = i + 1;
+		            eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
+		            forks[Left(i)] = 0;
+		            forks[Right(i)] = 0;
+	            }
+	            finally
+	            {
+					if(hasLock)
+						spinLock.Exit();
+	            }
+
                 Think(i);
-				token.ThrowIfCancellationRequested();
+
+	            if (token.IsCancellationRequested)
+		            break;
             }
-        }
+	    }
 
         public void RunMonitor(int i, CancellationToken token)
         {
@@ -156,7 +175,7 @@ namespace DPProblem
             {
 				try
 				{
-					Monitor.Enter(mutex);
+					Monitor.Enter(lockObject);
 					TakeFork(Left(i), i+1);
 					TakeFork(Right(i), i+1);
 					eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
@@ -165,7 +184,7 @@ namespace DPProblem
 	            }
 				finally
 	            {
-					Monitor.Exit(mutex);
+					Monitor.Exit(lockObject);
 	            }
                 Think(i);
 
@@ -203,9 +222,10 @@ namespace DPProblem
 	            int icopy = i;
 	            philosophers[i] =
 		            // Task.Run((otheri) => RunDeadlock(icopy, cancelTokenSource.Token))
-		            Task.Run(() => RunStarvation(icopy, cancelTokenSource.Token))
+		            //Task.Run(() => RunStarvation(icopy, cancelTokenSource.Token))
+		            // Task.Run(() => RunSpinLock(icopy, cancelTokenSource.Token))
 		            // Task.Run(() => RunMonitor(icopy, cancelTokenSource.Token))
-		            // Task.Run(() => RunInterlocked(icopy, cancelTokenSource.Token))
+		            Task.Run(() => RunInterlocked(icopy, cancelTokenSource.Token))
 		            ;
             }
 
