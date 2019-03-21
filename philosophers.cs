@@ -169,31 +169,51 @@ namespace DPProblem
             }
 	    }
 
+	    #region Kernel synch
+
+	    private Semaphore[] philosopherSemaphores = Enumerable.Repeat(new Semaphore(0, 1), philosophersAmount).ToArray();
+	    private Semaphore updateSemaphore = new Semaphore(1, 1);
+
+		void TakeForks(int i)
+		{
+			updateSemaphore.WaitOne();
+			if ((forks[Left(i)] == 0 || forks[Left(i)] == i+1)
+			    && (forks[Right(i)] == 0) || forks[Right(i)] == i+1)
+			{
+				forks[Left(i)] = i + 1;
+				forks[Right(i)] = i + 1;
+				philosopherSemaphores[i].Release(1); // neighbours don't eat
+			}
+			updateSemaphore.Release();
+			philosopherSemaphores[i].WaitOne();
+		}
+
+	    void PutForks(int i)
+	    {
+			updateSemaphore.WaitOne();
+		    forks[Left(i)] = Left(i); // give fork to neighbour
+		    philosopherSemaphores[Left(i)].Release();
+		    forks[Right(i)] = Right(i);
+		    philosopherSemaphores[Right(i)].Release();
+			updateSemaphore.Release();
+	    }
+
         public void RunSemaphore(int i, CancellationToken token)
         {
-			// TODO. Make as in Tanenbaum. N semaphors. Hungry/eating philosophers. Etc.
-            Log($"P{i + 1} starting");
+			// A semaphore per each philosopher. If either of neighbours took 
+			// his fork this thread calls WaitOne on his semaphore. When a 
+			// philosopher finishes eating he calls Release for both of his
+			// neighbours.
             while (true)
             {
-				try
-				{
-					Monitor.Enter(lockObject);
-					TakeFork(Left(i), i+1);
-					TakeFork(Right(i), i+1);
-					eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
-					PutFork(Left(i));
-					PutFork(Right(i));
-	            }
-				finally
-	            {
-					Monitor.Exit(lockObject);
-	            }
+	            TakeForks(i);
+				eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
+	            PutForks(i);
                 Think(i);
-
-	            if (token.IsCancellationRequested)
-		            break;
+	            if (token.IsCancellationRequested) break;
             }
         }
+	    #endregion
 
         public void RunMonitor(int i, CancellationToken token)
         {
