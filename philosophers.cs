@@ -169,6 +169,32 @@ namespace DPProblem
             }
 	    }
 
+        public void RunSemaphore(int i, CancellationToken token)
+        {
+			// TODO. Make as in Tanenbaum. N semaphors. Hungry/eating philosophers. Etc.
+            Log($"P{i + 1} starting");
+            while (true)
+            {
+				try
+				{
+					Monitor.Enter(lockObject);
+					TakeFork(Left(i), i+1);
+					TakeFork(Right(i), i+1);
+					eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
+					PutFork(Left(i));
+					PutFork(Right(i));
+	            }
+				finally
+	            {
+					Monitor.Exit(lockObject);
+	            }
+                Think(i);
+
+	            if (token.IsCancellationRequested)
+		            break;
+            }
+        }
+
         public void RunMonitor(int i, CancellationToken token)
         {
             Log($"P{i + 1} starting");
@@ -225,8 +251,8 @@ namespace DPProblem
 		            // Task.Run((otheri) => RunDeadlock(icopy, cancelTokenSource.Token))
 		            //Task.Run(() => RunStarvation(icopy, cancelTokenSource.Token))
 		            // Task.Run(() => RunSpinLock(icopy, cancelTokenSource.Token))
-		            // Task.Run(() => RunMonitor(icopy, cancelTokenSource.Token))
-		            Task.Run(() => RunInterlocked(icopy, cancelTokenSource.Token))
+		            // Task.Run(() => RunInterlocked(icopy, cancelTokenSource.Token))
+		            Task.Run(() => RunMonitor(icopy, cancelTokenSource.Token))
 		            ;
             }
 

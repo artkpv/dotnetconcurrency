@@ -7,9 +7,8 @@ Originally formulated in 1965 by Edsger Dijkstra
 ## Голод философов
 ## Смерть философа
 ## Решения в User Space
-### Transactional Memory (see art of multiproc. programming)
-- https://github.com/jbakic/Shielded
-- https://en.wikipedia.org/wiki/Software_transactional_memory#C#
+## Решение через блокировку сразу всех
+## Решение через блокировку только соседей
 ## Решения в Kernel Space
 -- Semaphor (named / unnamed)
 -- Mutex
@@ -20,6 +19,9 @@ Originally formulated in 1965 by Edsger Dijkstra
 -- SpinLock 
 -- ReaderWriterLockSlim. How? Ones computes, others checks results.
 -- Barrier. Make all philosophers stop at %100 or smth.
+### Transactional Memory (see art of multiproc. programming)
+- https://github.com/jbakic/Shielded
+- https://en.wikipedia.org/wiki/Software_transactional_memory#C#
 
 # Через сообщения 
 -- Agents and actors. Mention only? - actors model (Orleans and Akka.Net)
@@ -34,6 +36,8 @@ Originally formulated in 1965 by Edsger Dijkstra
 
 В этой статье описываются способы распараллеливания в .Net на примере проблемы обедающих философов. План простой -- от наивной попытки, т.е. отсутствия синхронизации, до модели акторов. Статья может быть полезна, как введение или для того чтобы освежить свои знания. Автора цель -- разобраться с тем, что интересно здесь.
 
+[TODO Кратко почему это важно. Процессоры достигли лимита физического, лимита внутреннего, но их можно делать больше. Поэтому вопрос важен их взаимодействия эффективного, чтобы вместе они ускоряли работу. Проблема на разных уровнях: на уровне процессора, на уровне процессоров, на уровне машин в сети. ]
+
 (TODO Постараемся еще выделить те решения, которые можно использовать на разных платформах (.Net Core).) 
 
 [TODO Обнови. Сказать что эта модель немного старая. Что конкарренси на сообщениях лучше. И пр.]
@@ -42,6 +46,7 @@ Originally formulated in 1965 by Edsger Dijkstra
 # Задача
 
 Эдсгер Дейкстра задавал эту проблему своим ученикам еще в 1965. Устоявшаяся формулировка такая. Есть некоторое (обычно пять) количество философов и столько же вилок. Они сидят за круглым столом, вилки между ними. Философы могут есть из своих тарелок с бесконечной пищей, думать или ждать. Чтобы поесть философу, нужно взять две вилки (последний делит вилку с первым). Взять и положить вилку - два раздельных действия. Все философы безмолвные. Задача найти такой алгоритм, чтобы все они думали и были сыты спустя даже 54 года.
+
 
 # Вилки на общем столе
 
@@ -211,6 +216,15 @@ SpinLock это блокировщик, с, грубо говоря, тем же
 
 # Решения в режиме ядра
 
-Давайте разберемся, как нам избежать проблемы с расходованием ресурсов в пустую в цикле и посмотрим на конструкции для синхронизации в режиме ядра.
+Чтобы избежать расходования ресурсов в цикле впустую, посмотрим как можно блокировать поток. Сразу стоит сказать, что все структуры, которые используют ядро системы заведомо медленнее, чем те, что в пространстве пользователя. Медленее в несколько раз, например AutoResetEvent в 53 раза медленнее SpinLock [Рихтер]. Но у них одно из главных преимуществ, кроме того, что они позволяют избежать busy waiting, в том, что можно синхронизировать уже процессы, управляемые или нет. 
+
+Интересный здесь класс это Semaphore, стандартный семафор Дейкстры, с подсчетом количества потоков, блокировкой при 0 и разблокировкой, если кто-то выходит из него. Другие конструкции здесь это основанные на EventWaitHandle (внутри просто булевый флаг, подобен семафору) и Mutex (тот же семафор, но теперь со всякими правилами для того, кто входит/выходит из него, поддержкой рекурсии).
 
 
+[Designing Data-Intensive Applications:
+When writing multi-threaded code on a single machine, we have fairly good tools for making it thread-safe: mutexes, semaphores, atomic counters, lock-free data struc‐ tures, blocking queues, and so on. Unfortunately, these tools don’t directly translate to distributed systems, because a distributed system has no shared memory—only messages sent over an unreliable network.]
+
+
+# Источники
+
+[Рихтер ] 
