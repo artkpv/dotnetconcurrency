@@ -216,11 +216,67 @@ SpinLock это блокировщик, с, грубо говоря, тем же
 
 # Решения в режиме ядра
 
-Чтобы избежать расходования ресурсов в цикле впустую, посмотрим как можно блокировать поток. Сразу стоит сказать, что все структуры, которые используют ядро системы заведомо медленнее, чем те, что в пространстве пользователя. Медленее в несколько раз, например AutoResetEvent может быть в 53 раза медленнее SpinLock [Рихтер]. Но у них одно из главных преимуществ, кроме того, что они позволяют избежать busy waiting, в том, что можно синхронизировать уже процессы, управляемые или нет. 
+Чтобы избежать расходования ресурсов в цикле впустую, посмотрим как можно блокировать поток. Сразу стоит сказать, что все структуры, которые используют ядро системы заведомо медленнее, чем те, что в пространстве пользователя. Медленее в несколько раз, например AutoResetEvent может быть в 53 раза медленнее SpinLock [Рихтер]. Но их главное преимущество, кроме того, что они позволяют избежать траты ресурсов процессора в пустом цикле, в том, что можно синхронизировать процессы по всей системе, управляемые или нет. 
 
-[TODO Semaphore?] Интересный здесь класс это Semaphore, стандартный семафор Дейкстры, с подсчетом количества потоков, блокировкой при 0 и разблокировкой, если кто-то выходит из него. Другие конструкции здесь это основанные на EventWaitHandle (внутри просто булевый флаг, подобен семафору) и Mutex (тот же семафор, но теперь со всякими правилами для того, кто входит/выходит из него, поддержкой рекурсии).
+Основная конструкция здесь это семафор, предложенный Дейкстрой более полувека назад. Семафор это, упрощенно говоря, положительное целое число, управляемое системой, и две операции, увеличить и уменьшить. Если уменьшить не получаеться, оно ноль, то вызывающий поток блокируется. Когда число увеличиваеться кем-нибудь, тогда потоки пропускаются и число уменьшается. Можно представить поезда в узком месте с семафором. .NET предлагает несколько конструкций схожих с семафором: AutoResetEvent, ManualResetEvent и Mutex. Есть и сам Semaphore. Мы будем использовать AutoResetEvent, это самая простая из этих конструкций: только два значения 0 и 1 (false, true). 1 ставиться автоматом, когда поток выходит из этой конструкции: AutoResetEvent.Set(), при входе ставиться 0, если было 1, либо вызывающий блокируется. Т.е. это тот же семафор, только без дополнительных проверок и пр.
 
 
+    // Для блокирования каждого философа:
+    private AutoResetEvent[] philosopherEvents = Enumerable.Repeat(new AutoResetEvent(true), philosophersAmount).ToArray();
+    // Для доступа к вилкам:
+    private AutoResetEvent tableEvent = new AutoResetEvent(true);
+
+    public void Run(int i, CancellationToken token)
+    {
+        while (true)
+        {
+            WaitForks(i);
+            eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
+            PutForks(i);
+            Think(i);
+            if (token.IsCancellationRequested) break;
+        }
+    }
+
+    // Ждем доступа к столу и доступа к обеим вилкам
+    void WaitForks(int i)
+    {
+        bool hasForks = false;
+        while (!hasForks) // Пробуем пока не возьмем вилки.
+        {
+            // Только один философ имеет доступ к столу (вилкам) одновременно
+            tableEvent.WaitOne();
+            hasForks = TakeForks(i);
+            tableEvent.Set();
+            // Будет есть, если сам смог взять, либо сосед доел
+            philosopherEvents[i].WaitOne();
+        }
+    }
+
+    // Пробуем взять обе вилки
+    bool TakeForks(int i)
+    {
+        if (forks[Left(i)] == 0 && forks[Right(i)] == 0)
+        {
+            forks[Left(i)] = i + 1;
+            forks[Right(i)] = i + 1;
+            // Мы взяли вилки, теперь можно есть
+            philosopherEvents[i].Set();
+            return true;
+        }
+        return false;
+    }
+
+    void PutForks(int i)
+    {
+        // Только один философ имеет доступ к столу (вилкам) одновременно
+        tableEvent.WaitOne();
+        forks[Left(i)] = 0;
+        philosopherEvents[Left(i)].Set();
+        forks[Right(i)] = 0;
+        philosopherEvents[Right(i)].Set();
+        tableEvent.Set();
+    }
 
 [Designing Data-Intensive Applications:
 When writing multi-threaded code on a single machine, we have fairly good tools for making it thread-safe: mutexes, semaphores, atomic counters, lock-free data struc‐ tures, blocking queues, and so on. Unfortunately, these tools don’t directly translate to distributed systems, because a distributed system has no shared memory—only messages sent over an unreliable network.]

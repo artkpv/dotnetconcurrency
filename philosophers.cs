@@ -13,32 +13,32 @@ namespace DPProblem
 {
     public class DinningPhilosophers : IDisposable
     {
-        private const int philosophersAmount = 4;
+        private const int philosophersAmount = 5;
 
 		// 0 - a fork is not taken, x - taken by x philosopher:
-        private volatile int[] forks = Enumerable.Repeat(0, philosophersAmount).ToArray();
+        private static int[] forks = Enumerable.Repeat(0, philosophersAmount).ToArray();
 
         private static object lockObject = new object();
 
-        private int[] eatenFood = new int[philosophersAmount];
+        private static int[] eatenFood = new int[philosophersAmount];
 
-        private int[] lastEatenFood = new int[philosophersAmount];
+        private static int[] lastEatenFood = new int[philosophersAmount];
 
-        private int[] thoughts = new int[philosophersAmount];
+        private static int[] thoughts = new int[philosophersAmount];
 
 	    private Timer threadingTimer;
 
-	    private DateTime startTime;
+	    private Stopwatch watch;
 
 		[Pure] private static int Left(int i) => i;
 		[Pure] private static int Right(int i) => (i + 1) % philosophersAmount;
 
 	    private void Log(string message)
 	    {
-			Console.WriteLine($"{(DateTime.Now - startTime).TotalMilliseconds:000000.0}: {message}");
+			Console.WriteLine($"{watch.ElapsedMilliseconds}: {message}");
 	    }
 
-	    private void Think(int philosopherInx)
+	    private static void Think(int philosopherInx)
         {
 			// A philosopher will find all primes not greater than 2^16-1 (~65ms)
 	        const int primesLimit = 0x1_0000 - 1;
@@ -169,51 +169,68 @@ namespace DPProblem
             }
 	    }
 
-	    #region Kernel synch
-
-	    private Semaphore[] philosopherSemaphores = Enumerable.Repeat(new Semaphore(0, 1), philosophersAmount).ToArray();
-	    private Semaphore updateSemaphore = new Semaphore(1, 1);
-
-		void TakeForks(int i)
-		{
-			updateSemaphore.WaitOne();
-			if ((forks[Left(i)] == 0 || forks[Left(i)] == i+1)
-			    && (forks[Right(i)] == 0) || forks[Right(i)] == i+1)
-			{
-				forks[Left(i)] = i + 1;
-				forks[Right(i)] = i + 1;
-				philosopherSemaphores[i].Release(1); // neighbours don't eat
-			}
-			updateSemaphore.Release();
-			philosopherSemaphores[i].WaitOne();
-		}
-
-	    void PutForks(int i)
+		// BUG: DEADLOCK
+	    class AutoResetEventSample
 	    {
-			updateSemaphore.WaitOne();
-		    forks[Left(i)] = Left(i); // give fork to neighbour
-		    philosopherSemaphores[Left(i)].Release();
-		    forks[Right(i)] = Right(i);
-		    philosopherSemaphores[Right(i)].Release();
-			updateSemaphore.Release();
-	    }
+			// Для блокирования каждого философа:
+			private AutoResetEvent[] philosopherEvents = Enumerable.Repeat(new AutoResetEvent(true), philosophersAmount).ToArray();
+			// Для доступа к вилкам:
+			private AutoResetEvent tableEvent = new AutoResetEvent(true);
 
-        public void RunSemaphore(int i, CancellationToken token)
-        {
-			// A semaphore per each philosopher. If either of neighbours took 
-			// his fork this thread calls WaitOne on his semaphore. When a 
-			// philosopher finishes eating he calls Release for both of his
-			// neighbours.
-            while (true)
-            {
-	            TakeForks(i);
-				eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
-	            PutForks(i);
-                Think(i);
-	            if (token.IsCancellationRequested) break;
-            }
-        }
-	    #endregion
+			public void Run(int i, CancellationToken token)
+			{
+				while (true)
+				{
+					WaitForks(i);
+					Debug.Assert(forks[Left(i)] == i+1);
+					Debug.Assert(forks[Right(i)] == i+1);
+					eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
+					PutForks(i);
+					Think(i);
+					if (token.IsCancellationRequested) break;
+				}
+			}
+
+			// Ждем доступа к столу и доступа к обеим вилкам
+			void WaitForks(int i)
+			{
+				bool hasForks = false;
+				while (!hasForks) // Пробуем пока не возьмем вилки.
+				{
+					// Только один философ имеет доступ к столу (вилкам) одновременно
+					tableEvent.WaitOne();
+					hasForks = TakeForks(i);
+					tableEvent.Set();
+					// Будет есть, если сам смог взять, либо сосед доел
+					philosopherEvents[i].WaitOne();
+				}
+			}
+
+			// Пробуем взять обе вилки
+			bool TakeForks(int i)
+			{
+				if (forks[Left(i)] == 0 && forks[Right(i)] == 0)
+				{
+					forks[Left(i)] = i + 1;
+					forks[Right(i)] = i + 1;
+					// Мы взяли вилки, теперь можно есть
+					philosopherEvents[i].Set();
+					return true;
+				}
+				return false;
+			}
+
+			void PutForks(int i)
+			{
+				// Только один философ имеет доступ к столу (вилкам) одновременно
+				tableEvent.WaitOne();
+				forks[Left(i)] = 0;
+				philosopherEvents[Left(i)].Set();
+				forks[Right(i)] = 0;
+				philosopherEvents[Right(i)].Set();
+				tableEvent.Set();
+			}
+	    }
 
         public void RunMonitor(int i, CancellationToken token)
         {
@@ -254,7 +271,7 @@ namespace DPProblem
 
         public void Run()
         {
-            startTime = DateTime.Now;
+            watch = Stopwatch.StartNew();
             Log("Starting...");
 
             const int dueTime = 1000;
@@ -263,6 +280,7 @@ namespace DPProblem
 	        var philosophers = new Task[philosophersAmount];
 
 	        var cancelTokenSource = new CancellationTokenSource();
+			var autoResetEventSample = new AutoResetEventSample();
 
             for (int i = 0; i < philosophersAmount; i++)
             {
@@ -272,7 +290,8 @@ namespace DPProblem
 		            //Task.Run(() => RunStarvation(icopy, cancelTokenSource.Token))
 		            // Task.Run(() => RunSpinLock(icopy, cancelTokenSource.Token))
 		            // Task.Run(() => RunInterlocked(icopy, cancelTokenSource.Token))
-		            Task.Run(() => RunMonitor(icopy, cancelTokenSource.Token))
+		            Task.Run(() => autoResetEventSample.Run(icopy, cancelTokenSource.Token))
+		            //Task.Run(() => RunMonitor(icopy, cancelTokenSource.Token))
 		            ;
             }
 
@@ -289,13 +308,11 @@ namespace DPProblem
                 Log("Exception: " + e.Message);
             }
 
-            TimeSpan spentTime = DateTime.Now - startTime;
             for (int i = 0; i < philosophersAmount; i++)
             {
                 Log($"P{i+1} {eatenFood[i]} eaten, {thoughts[i]} thoughts.");
             }
-            Console.WriteLine($"Time: {spentTime:g}");
-            Console.WriteLine($"Thoughts speed: {thoughts.Sum() / (spentTime.TotalSeconds):.00} t/sec");
+            Console.WriteLine($"Time: {watch.ElapsedMilliseconds}");
         }
 
 	    public void Dispose()
