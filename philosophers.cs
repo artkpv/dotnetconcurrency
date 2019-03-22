@@ -199,7 +199,8 @@ namespace DPProblem
 				{
 					// Только один философ имеет доступ к столу (вилкам) одновременно
 					tableEvent.WaitOne();
-					hasForks = TakeForks(i);
+					TakeForks(i);
+					hasForks = forks[Left(i)] == i + 1 && forks[Right(i)] == i + 1;
 					tableEvent.Set();
 					// Будет есть, если сам смог взять, либо сосед доел
 					philosopherEvents[i].WaitOne();
@@ -207,17 +208,15 @@ namespace DPProblem
 			}
 
 			// Пробуем взять обе вилки
-			bool TakeForks(int i)
+			void TakeForks(int i)
 			{
-				if (forks[Left(i)] == 0 && forks[Right(i)] == 0)
+				if (forks[Left(i)] == 0  && forks[Right(i)] == 0 )
 				{
 					forks[Left(i)] = i + 1;
 					forks[Right(i)] = i + 1;
 					// Мы взяли вилки, теперь можно есть
 					philosopherEvents[i].Set();
-					return true;
 				}
-				return false;
 			}
 
 			void PutForks(int i)
