@@ -285,3 +285,4 @@ When writing multi-threaded code on a single machine, we have fairly good tools 
 # Источники
 
 [Рихтер ] 
+
