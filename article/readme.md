@@ -287,6 +287,15 @@ SpinLock это блокировщик, с, грубо говоря, тем же
 
 ## Гибридные решения
  
+## Lock / Monitor
+
+Do not use :
+1. 
+https://blogs.msdn.microsoft.com/ericlippert/2009/03/06/locks-and-exceptions-do-not-mix/
+2. 
+Richter
+
+
 # Сообщения и распределенные системы
 
 [Designing Data-Intensive Applications:

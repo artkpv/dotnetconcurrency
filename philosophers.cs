@@ -178,7 +178,6 @@ namespace DPProblem
 			}
 		}
 
-
 		class AutoResetEventSample
 		{
 			// Для блокирования каждого философа:
@@ -232,6 +231,46 @@ namespace DPProblem
 			}
 		}
 
+		class MonitorSample
+		{
+			private object[] forkLocks;
+
+			public MonitorSample()
+			{
+				forkLocks = new object[philosophersAmount];
+				for(int i = 0; i < philosophersAmount; i++)
+					forkLocks[i] = new object();
+			}
+
+			public void Run(int i, CancellationToken token)
+			{
+				while (true)
+				{
+					TakeForks(i);
+					eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
+					PutForks(i);
+					Think(i);
+					if (token.IsCancellationRequested) break;
+				}
+			}
+
+			void TakeForks(int i)
+			{
+				bool hasForks = false;
+				while (!hasForks)
+				{
+					// Take left
+					// Try take right
+					// If not put left 
+					// Repeat
+				}
+			}
+
+			void PutForks(int i)
+			{
+				// 
+			}
+		}
 		public void RunMonitor(int i, CancellationToken token)
 		{
 			Log($"P{i + 1} starting");
