@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using System.Numerics;
 using System.Reflection.Metadata.Ecma335;
 using System.Runtime.ExceptionServices;
+using System.Runtime.CompilerServices; 
 
 namespace DPProblem
 {
@@ -30,13 +31,21 @@ namespace DPProblem
 
 		private static Stopwatch watch;
 
-		[Pure] private static int Left(int i) => i;
-		[Pure] private static int Right(int i) => (i + 1) % philosophersAmount;
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static int Left(int i) => i;
 
-		private static void Log(string message)
-		{
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static int LeftPhilosopher(int i) => (philosophersAmount + i - 1) % philosophersAmount;
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static int Right(int i) => (i + 1) % philosophersAmount;
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static int RightPhilosopher(int i) => (i + 1) % philosophersAmount;
+
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static void Log(string message) =>
 			Console.WriteLine($"{watch.ElapsedMilliseconds}: {message}");
-		}
 
 		private static void Think(int philosopherInx)
 		{
@@ -169,21 +178,26 @@ namespace DPProblem
 			}
 		}
 
-		// BUG: DEADLOCK
+
 		class AutoResetEventSample
 		{
 			// Для блокирования каждого философа:
-			private AutoResetEvent[] philosopherEvents = Enumerable.Repeat(new AutoResetEvent(true), philosophersAmount).ToArray();
+			private AutoResetEvent[] philosopherEvents;
 			// Для доступа к вилкам:
 			private AutoResetEvent tableEvent = new AutoResetEvent(true);
+
+			public AutoResetEventSample()
+			{
+				philosopherEvents = new AutoResetEvent[philosophersAmount];
+				for(int i = 0; i < philosophersAmount; i++)
+					philosopherEvents[i] = new AutoResetEvent(true);
+			}
 
 			public void Run(int i, CancellationToken token)
 			{
 				while (true)
 				{
 					TakeForks(i);
-					Debug.Assert(forks[Left(i)] == i + 1);
-					Debug.Assert(forks[Right(i)] == i + 1);
 					eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
 					PutForks(i);
 					Think(i);
@@ -211,9 +225,9 @@ namespace DPProblem
 			{
 				tableEvent.WaitOne();
 				forks[Left(i)] = 0;
-				philosopherEvents[Left(i)].Set();
+				philosopherEvents[LeftPhilosopher(i)].Set();
 				forks[Right(i)] = 0;
-				philosopherEvents[Right(i)].Set();
+				philosopherEvents[RightPhilosopher(i)].Set();
 				tableEvent.Set();
 			}
 		}
