@@ -283,6 +283,8 @@ SpinLock это блокировщик, с, грубо говоря, тем же
 
 Чтобы понять, что тут происходит, рассмотрим случай, когда философу не удалось взять вилки, тогда его действия будут такими. Он ждет доступа к столу. Получив его он пробует взять вилки. Не получилось. Он отдает доступ к столу (взаимное исключение). И проходит свой "турникет" (AutoResetEvent) (вначале они открыты). Попадает опять в цикл, т.к. у него нет вилок. Пробует взять их и останавливается у своего "турникета". Какой-нибудь более удачливый сосед справа или слева, закончив есть, разблокирует нашего философа, "открывая его турникет". Наш философ проходит его (и он закрывается за ним) во второй раз. Пробует в третий раз взять вилки. Удачно. И проходит свой турникет, чтобы отобедать.
 
+Когда в таком коде будут случайные ошибки (они всегда есть), например будет неверно указан сосед или создан один и тот же объект AutoResetEvent для всех (Enumerable.Repeat), тогда философы будут ждать уже разработчиков, т.к. поиск ошибок в таком коде довольно сложное занятие. 
+
 
 [Designing Data-Intensive Applications:
 When writing multi-threaded code on a single machine, we have fairly good tools for making it thread-safe: mutexes, semaphores, atomic counters, lock-free data struc‐ tures, blocking queues, and so on. Unfortunately, these tools don’t directly translate to distributed systems, because a distributed system has no shared memory—only messages sent over an unreliable network.]
