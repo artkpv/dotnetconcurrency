@@ -229,18 +229,10 @@ namespace DPProblem
 			}
 		}
 
-		class MonitorSample
+		class MonitorSolution
 		{
-			private enum EState {Hungry, Eating, Thinking}
-			private EState[] _states = Enumerable.Repeat(EState.Hungry, philosophersAmount).ToArray();
-			private object[] _locks;
-
-			public MonitorSample()
-			{
-				_locks = new object[philosophersAmount];
-				for(int i = 0; i < philosophersAmount; i++)
-					_locks[i] = new object();
-			}
+			private readonly object _lock = new object();
+			private DateTime?[] _waitTimes = new DateTime?[philosophersAmount];
 
 			public void Run(int i, CancellationToken token)
 			{
@@ -254,50 +246,50 @@ namespace DPProblem
 				}
 			}
 
-			void Test(int i) 
+			bool CanIEat(int i)
 			{
-
+				if (forks[Left(i)] != 0 && forks[Right(i)] != 0)
+					return false;
+				var now = DateTime.Now;
+				foreach(var p in new int[] {LeftPhilosopher(i), RightPhilosopher(i)})
+					if (_waitTimes[p] != null && now - _waitTimes[p] > now - _waitTimes[i])
+						return false;
+				return true;
 			}
 
 			void TakeForks(int i)
 			{
-				// Зайти в монитор. 
-				// В цикле, Если оба соседа едят, то делаю монитору Wait 
-				// Я ем
-				// Выйти из монитора
+				bool lockTaken = false;
+				Monitor.Enter(_lock, ref lockTaken);
+				try
+				{
+					_waitTimes[i] = DateTime.Now;
+					while (!CanIEat(i))
+						Monitor.Wait(_lock);
+					forks[Left(i)] = i + 1;
+					forks[Right(i)] = i + 1;
+					_waitTimes[i] = null;
+				}
+				finally
+				{
+					if (lockTaken) Monitor.Exit(_lock);
+				}
 			}
 
 			void PutForks(int i)
 			{
-				// Зайти в монитор
-				// положить вилки
-				// Сделать Pulse соседям
-				// Выйти из монитора
-			}
-		}
-
-		public void RunMonitor(int i, CancellationToken token)
-		{
-			Log($"P{i + 1} starting");
-			while (true)
-			{
+				bool lockTaken = false;
+				Monitor.Enter(_lock, ref lockTaken);
 				try
 				{
-					Monitor.Enter(lockObject);
-					TakeFork(Left(i), i + 1);
-					TakeFork(Right(i), i + 1);
-					eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
-					PutFork(Left(i));
-					PutFork(Right(i));
+					forks[Left(i)] = 0;
+					forks[Right(i)] = 0;
+					Monitor.PulseAll(_lock);
 				}
 				finally
 				{
-					Monitor.Exit(lockObject);
+					if (lockTaken) Monitor.Exit(_lock);
 				}
-				Think(i);
-
-				if (token.IsCancellationRequested)
-					break;
 			}
 		}
 
@@ -325,6 +317,7 @@ namespace DPProblem
 
 			var cancelTokenSource = new CancellationTokenSource();
 			var autoResetEvent = new AutoResetEventSolution();
+			var monitorSolution = new MonitorSolution();
 
 			for (int i = 0; i < philosophersAmount; i++)
 			{
@@ -334,8 +327,8 @@ namespace DPProblem
 					//Task.Run(() => RunStarvation(icopy, cancelTokenSource.Token))
 					// Task.Run(() => RunSpinLock(icopy, cancelTokenSource.Token))
 					// Task.Run(() => RunInterlocked(icopy, cancelTokenSource.Token))
-					Task.Run(() => autoResetEvent.Run(icopy, cancelTokenSource.Token))
-					//Task.Run(() => RunMonitor(icopy, cancelTokenSource.Token))
+					// Task.Run(() => autoResetEvent.Run(icopy, cancelTokenSource.Token))
+					Task.Run(() => monitorSolution.Run(icopy, cancelTokenSource.Token))
 					;
 			}
 
