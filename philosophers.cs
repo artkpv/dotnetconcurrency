@@ -178,14 +178,12 @@ namespace DPProblem
 			}
 		}
 
-		class AutoResetEventSample
+		class AutoResetEventSolution
 		{
-			// Для блокирования каждого философа:
 			private AutoResetEvent[] philosopherEvents;
-			// Для доступа к вилкам:
 			private AutoResetEvent tableEvent = new AutoResetEvent(true);
 
-			public AutoResetEventSample()
+			public AutoResetEventSolution()
 			{
 				philosopherEvents = new AutoResetEvent[philosophersAmount];
 				for(int i = 0; i < philosophersAmount; i++)
@@ -233,13 +231,15 @@ namespace DPProblem
 
 		class MonitorSample
 		{
-			private object[] forkLocks;
+			private enum EState {Hungry, Eating, Thinking}
+			private EState[] _states = Enumerable.Repeat(EState.Hungry, philosophersAmount).ToArray();
+			private object[] _locks;
 
 			public MonitorSample()
 			{
-				forkLocks = new object[philosophersAmount];
+				_locks = new object[philosophersAmount];
 				for(int i = 0; i < philosophersAmount; i++)
-					forkLocks[i] = new object();
+					_locks[i] = new object();
 			}
 
 			public void Run(int i, CancellationToken token)
@@ -254,23 +254,28 @@ namespace DPProblem
 				}
 			}
 
+			void Test(int i) 
+			{
+
+			}
+
 			void TakeForks(int i)
 			{
-				bool hasForks = false;
-				while (!hasForks)
-				{
-					// Take left
-					// Try take right
-					// If not put left 
-					// Repeat
-				}
+				// Зайти в монитор. 
+				// В цикле, Если оба соседа едят, то делаю монитору Wait 
+				// Я ем
+				// Выйти из монитора
 			}
 
 			void PutForks(int i)
 			{
-				// 
+				// Зайти в монитор
+				// положить вилки
+				// Сделать Pulse соседям
+				// Выйти из монитора
 			}
 		}
+
 		public void RunMonitor(int i, CancellationToken token)
 		{
 			Log($"P{i + 1} starting");
@@ -319,7 +324,7 @@ namespace DPProblem
 			var philosophers = new Task[philosophersAmount];
 
 			var cancelTokenSource = new CancellationTokenSource();
-			var autoResetEventSample = new AutoResetEventSample();
+			var autoResetEvent = new AutoResetEventSolution();
 
 			for (int i = 0; i < philosophersAmount; i++)
 			{
@@ -329,7 +334,7 @@ namespace DPProblem
 					//Task.Run(() => RunStarvation(icopy, cancelTokenSource.Token))
 					// Task.Run(() => RunSpinLock(icopy, cancelTokenSource.Token))
 					// Task.Run(() => RunInterlocked(icopy, cancelTokenSource.Token))
-					Task.Run(() => autoResetEventSample.Run(icopy, cancelTokenSource.Token))
+					Task.Run(() => autoResetEvent.Run(icopy, cancelTokenSource.Token))
 					//Task.Run(() => RunMonitor(icopy, cancelTokenSource.Token))
 					;
 			}
