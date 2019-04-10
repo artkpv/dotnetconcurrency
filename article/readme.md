@@ -370,19 +370,29 @@ SpinLock это блокировщик, с, грубо говоря, тем же
 
 Так мы избегаем дедлоков и голодания какого-нибудь философа. Используем цикл для краткого ожидания и блокируем поток для долгого. Разблокировка сразу всех работает медленее, чем если бы была разблокировка только соседа, как в решении с AutoResetEvent, но разница не должна быть большой, т.к. потоки должны остаться в режиме пользователя сначала. 
 
-Lock синтаксис не рекомендуется использовать, а использовать Monitor напрямую (Рихтер, Эрик Липперт TODO https://blogs.msdn.microsoft.com/ericlippert/2009/03/06/locks-and-exceptions-do-not-mix/), если вы знаете, что делаете, потому, что lock всегда выходит из Monitor, даже если было исключение, и тогда другой поток может изменить состояние общей памяти. В таких случаях чаще лучше уходить в дедлок или как-то безопасно завершать программу. 
+Lock синтаксис не рекомендуется использовать [TODO так? м.б. использовать зная только], а использовать Monitor напрямую (Рихтер, Эрик Липперт TODO https://blogs.msdn.microsoft.com/ericlippert/2009/03/06/locks-and-exceptions-do-not-mix/), если вы знаете, что делаете, потому, что lock всегда выходит из Monitor, даже если было исключение, и тогда другой поток может изменить состояние общей памяти. В таких случаях чаще лучше уходить в дедлок или как-то безопасно завершать программу. 
 
 Другая проблема с Monitor в том, что он использует блоки синхронизации (SyncBlock), которые есть во всех объектах. Поэтому, если выбран неподходящий объект, можно легко получить дедлок (например, если сделать лок на интернированную строку). Используем всегда скрытый объект для этого.
 
 Condition Variable паттерн позволяет более кратко реализовать ожидание какого-нибудь сложного условия. В .NET он неполный, на мой взгляд, т.к. по идее там должны быть несколько очередей на нескольких переменных (как в Posix Threads), а не на одном локе. Тогда можно было бы сделать их для всех философов. Но и в таком виде он позволяет сократить код.
 
 
+## Task - async / await - SemaphoreSlim.WaitAsync
+
+[TODO Об async await пример с СемафорСлимом. ]
+
+
+
+# Software Transaction Model
 
 # Сообщения и распределенные системы
 
 [Designing Data-Intensive Applications:
 When writing multi-threaded code on a single machine, we have fairly good tools for making it thread-safe: mutexes, semaphores, atomic counters, lock-free data structures, blocking queues, and so on. Unfortunately, these tools don’t directly translate to distributed systems, because a distributed system has no shared memory—only messages sent over an unreliable network.]
 
+[TODO Через System.Collection.Concurrent]
+
+# 
 
 # Источники
 
