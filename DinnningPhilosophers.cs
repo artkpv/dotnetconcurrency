@@ -25,18 +25,18 @@ namespace DPProblem
 			Monitor = 5,
 			SemaphorSlim = 6,
 		}
-		private const int philosophersAmount = 10;
+		private const int PhilosophersAmount = 50;
 
 		// 0 - a fork is not taken, x - taken by x philosopher:
-		private static int[] forks = Enumerable.Repeat(0, philosophersAmount).ToArray();
+		private static int[] forks = Enumerable.Repeat(0, PhilosophersAmount).ToArray();
 
-		private volatile static int[] eatenFood = new int[philosophersAmount];
+		private volatile static int[] eatenFood = new int[PhilosophersAmount];
 
-		private volatile static int[] lastEatenFood = new int[philosophersAmount];
+		private volatile static int[] lastEatenFood = new int[PhilosophersAmount];
 
-		private volatile static int[] thoughts = new int[philosophersAmount];
+		private volatile static int[] thoughts = new int[PhilosophersAmount];
 
-		private volatile static long[] _waitTime = Enumerable.Repeat(0L, philosophersAmount).ToArray();
+		private volatile static long[] _waitTime = Enumerable.Repeat(0L, PhilosophersAmount).ToArray();
 
 		private Timer threadingTimer;
 
@@ -46,21 +46,24 @@ namespace DPProblem
 		private static int Left(int i) => i;
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		private static int LeftPhilosopher(int i) => (philosophersAmount + i - 1) % philosophersAmount;
+		private static int LeftPhilosopher(int i) => (PhilosophersAmount + i - 1) % PhilosophersAmount;
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		private static int Right(int i) => (i + 1) % philosophersAmount;
+		private static int Right(int i) => (i + 1) % PhilosophersAmount;
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
-		private static int RightPhilosopher(int i) => (i + 1) % philosophersAmount;
+		private static int RightPhilosopher(int i) => (i + 1) % PhilosophersAmount;
 
 		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		private static void Log(string message) =>
 			Console.WriteLine($"{watch.ElapsedMilliseconds}: {message}");
 
+		/// <summary>
+		/// A philosopher will find all primes not greater than 2^16-1 (~65ms)
+		/// </summary>
+		/// <param name="philosopherInx"></param>
 		private static void Think(int philosopherInx)
 		{
-			// A philosopher will find all primes not greater than 2^16-1 (~65ms)
 			const int primesLimit = 0x1_0000 - 1;
 			bool isPrime(long number) =>
 				Enumerable.Range(2, (int)Math.Sqrt(number) - 1).All(i => number % i != 0);
@@ -194,7 +197,7 @@ namespace DPProblem
 		private void Observe(object state)
 		{
 			Console.WriteLine($"Wait time: {string.Join(' ', _waitTime)}");
-			for (int i = 0; i < philosophersAmount; i++)
+			for (int i = 0; i < PhilosophersAmount; i++)
 			{
 				if (lastEatenFood[i] == eatenFood[i])
 					Log($"P{i + 1} didn't eat: {lastEatenFood[i]}-{eatenFood[i]}. Forks {string.Join(' ', forks)}");
@@ -209,9 +212,9 @@ namespace DPProblem
 			Log("Starting...");
 
 			const int dueTime = 1000;
-			const int checkPeriod = 1000;
+			const int checkPeriod = 2000;
 			threadingTimer = new Timer(Observe, null, dueTime, checkPeriod);
-			var philosophers = new Task[philosophersAmount];
+			var philosophers = new Task[PhilosophersAmount];
 
 			var cancelTokenSource = new CancellationTokenSource();
 			var autoResetEvent = new AutoResetEventSolution();
@@ -230,7 +233,7 @@ namespace DPProblem
 			};
 
 			Log($"Method {method}");
-			for (int i = 0; i < philosophersAmount; i++)
+			for (int i = 0; i < PhilosophersAmount; i++)
 			{
 				int icopy = i;
 				philosophers[i] = runActions[(int)method](icopy);
@@ -257,8 +260,8 @@ namespace DPProblem
 				Console.WriteLine("Failed to run some philosopher(s)");
 			else
 				Console.WriteLine(
-					$"Total wait time: {_waitTime.Sum()}" +
-					"total wait / elapsed: {_waitTime.Sum() / watch.ElapsedMilliseconds}");
+					$"Total wait time: {_waitTime.Sum()},"
+					+ $" total wait / elapsed: {(double)_waitTime.Sum() / watch.ElapsedMilliseconds}");
 		}
 
 		public void Dispose()

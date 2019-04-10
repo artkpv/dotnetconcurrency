@@ -22,8 +22,8 @@ namespace DPProblem
 
 			public AutoResetEventSolution()
 			{
-				philosopherEvents = new AutoResetEvent[philosophersAmount];
-				for (int i = 0; i < philosophersAmount; i++)
+				philosopherEvents = new AutoResetEvent[PhilosophersAmount];
+				for (int i = 0; i < PhilosophersAmount; i++)
 					philosopherEvents[i] = new AutoResetEvent(true);
 			}
 

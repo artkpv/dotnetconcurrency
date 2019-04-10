@@ -18,7 +18,7 @@ namespace DPProblem
 		class MonitorSolution
 		{
 			private readonly object _lock = new object();
-			private DateTime?[] _waitTimes = new DateTime?[philosophersAmount];
+			private DateTime?[] _waitTimes = new DateTime?[PhilosophersAmount];
 
 			public void Run(int i, CancellationToken token)
 			{
