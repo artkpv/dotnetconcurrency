@@ -213,7 +213,7 @@ namespace DPProblem
 
 			const int dueTime = 1000;
 			const int checkPeriod = 2000;
-			threadingTimer = new Timer(Observe, null, dueTime, checkPeriod);
+			// threadingTimer = new Timer(Observe, null, dueTime, checkPeriod);
 			var philosophers = new Task[PhilosophersAmount];
 
 			var cancelTokenSource = new CancellationTokenSource();
