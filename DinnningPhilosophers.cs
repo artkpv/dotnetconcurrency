@@ -23,8 +23,7 @@ namespace DPProblem
 			Interlocked = 3,
 			AutoResetEvent = 4,
 			Monitor = 5,
-			SemaphorSlim = 6,
-			Agents = 7
+			SemaphorSlim = 6
 		}
 		private const int PhilosophersAmount = 5;
 
@@ -221,7 +220,6 @@ namespace DPProblem
 			var autoResetEvent = new AutoResetEventSolution();
 			var monitorSolution = new MonitorSolution();
 			var semaphorSlimSolution = new SemaphoreSlimSolution();
-			var agentsSolution = new AgentsSolution();
 
 			var runActions = new Func<int, Task>[]
 			{
@@ -232,7 +230,6 @@ namespace DPProblem
 				(i) => Task.Run(() => autoResetEvent.Run(i, cancelTokenSource.Token)),
 				(i) => Task.Run(() => monitorSolution.Run(i, cancelTokenSource.Token)),
 				(i) => Task.Run(() => semaphorSlimSolution.Run(i, cancelTokenSource.Token)),
-				(i) => Task.Run(() => agentsSolution.Run(i, cancelTokenSource.Token)),
 			};
 
 			Log($"Method {method}");
