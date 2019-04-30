@@ -26,7 +26,7 @@ namespace DPProblem
 			SemaphorSlim = 6,
 			Agents = 7
 		}
-		private const int PhilosophersAmount = 50;
+		private const int PhilosophersAmount = 5;
 
 		// 0 - a fork is not taken, x - taken by x philosopher:
 		private static int[] forks = Enumerable.Repeat(0, PhilosophersAmount).ToArray();
@@ -214,7 +214,7 @@ namespace DPProblem
 
 			const int dueTime = 1000;
 			const int checkPeriod = 2000;
-			// threadingTimer = new Timer(Observe, null, dueTime, checkPeriod);
+			threadingTimer = new Timer(Observe, null, dueTime, checkPeriod);
 			var philosophers = new Task[PhilosophersAmount];
 
 			var cancelTokenSource = new CancellationTokenSource();

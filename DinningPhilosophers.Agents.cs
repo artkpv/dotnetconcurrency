@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 
 namespace DPProblem
@@ -16,7 +17,7 @@ namespace DPProblem
 		class AgentsSolution
 		{
 			private BufferBlock<(int, EForkState)>[] _inboxes;
-			private enum EForkState { Dirty, Clean, Unknown }
+			private enum EForkState { Dirty, Clean, Requested }
 
 			public AgentsSolution()
 			{
@@ -25,72 +26,118 @@ namespace DPProblem
 					_inboxes[i] = new BufferBlock<(int, EForkState)>();
 			}
 
-			public async void Run(int i, CancellationToken token)
+			async Task<(EForkState?, EForkState?)> TakeForks(
+				int i, 
+				EForkState? leftFork,
+				EForkState? rightFork,
+				CancellationToken token)
 			{
-				/*
-				EForkState? leftFork = EForkState.Dirty;
-				EForkState? rightFork = null;
-				var watch = new Stopwatch();
-				async Task TakeForks()
+				if (leftFork == null)
+					_inboxes[LeftPhilosopher(i)].Post((Left(i), EForkState.Requested));
+				if (rightFork == null)
+					_inboxes[RightPhilosopher(i)].Post((Right(i), EForkState.Requested));
+				while (leftFork == null || rightFork == null)
 				{
-					watch.Restart();
-					if (leftFork == null)
-						_inboxes[LeftPhilosopher(i)].Post((Left(i), EForkState.Unknown));
-					if (rightFork == null)
-						_inboxes[RightPhilosopher(i)].Post((Right(i), EForkState.Unknown));
-					while (leftFork == null || rightFork == null)
-					{
-						(int someFork, EForkState state) = await _inboxes[i].ReceiveAsync(token);
-						Console.WriteLine($"Received {someFork}, {state}");
-						if (someFork == Left(i))
-						{
-							leftFork = state;
-						}
-						if (someFork == Right(i))
-						{
-							rightFork = state;
-						}
-					}
-					Debug.Assert(rightFork != null && leftFork != null);
-					_waitTime[i] += watch.ElapsedMilliseconds;
+					(int fork, EForkState state) = await _inboxes[i].ReceiveAsync(token);
+					(leftFork, rightFork) = ProcessMessage(i, leftFork, rightFork, fork, state);
 				}
+				Debug.Assert(rightFork != null && leftFork != null);
+				return (leftFork, rightFork);
+			}
 
-				void GiveForks()
+			(EForkState?, EForkState?) ProcessMessage(
+				int i, 
+				EForkState? leftFork,
+				EForkState? rightFork,
+				int messageFork,
+				EForkState state)
+			{
+				if (state == EForkState.Requested)
 				{
-					watch.Restart();
-					while (_inboxes[i].TryReceive(out (int fork, EForkState state) message))
+					if (messageFork == Left(i))
 					{
-						if (message.fork == Left(i))
+						Debug.Assert(leftFork != null);
+						if (leftFork == EForkState.Dirty)
 						{
-							_inboxes[LeftPhilosopher(i)].Post((Left(i), EForkState.Clean));
+							_inboxes[LeftPhilosopher(i)].Post((messageFork, EForkState.Clean));
 							leftFork = null;
 						}
-						else if (message.fork == Right(i))
+						else
 						{
-							_inboxes[RightPhilosopher(i)].Post((Right(i), EForkState.Clean));
+							_inboxes[i].Post((messageFork, EForkState.Requested));
+						}
+					}
+					else if (messageFork == Right(i))
+					{
+						Debug.Assert(rightFork != null);
+						if (rightFork == EForkState.Dirty)
+						{
+							_inboxes[RightPhilosopher(i)].Post((messageFork, EForkState.Clean));
 							rightFork = null;
 						}
-						else 
-							throw new ApplicationException($"no such fork: {message.fork}");
+						else
+						{
+							_inboxes[i].Post((messageFork, EForkState.Requested));
+						}
 					}
-					_waitTime[i] += watch.ElapsedMilliseconds;
+					else 
+						throw new ApplicationException($"no such fork: {messageFork}");
 				}
+				else
+				{
+					if (messageFork == Left(i))
+					{
+						Debug.Assert(leftFork == null);
+						leftFork = state;
+					}
+					else if (messageFork == Right(i))
+					{
+						Debug.Assert(rightFork == null);
+						rightFork = state;
+					}
+					else 
+						throw new ApplicationException($"no such fork: {messageFork}");
+				}
+				return (leftFork, rightFork);
+			}
 
+			(EForkState?, EForkState?) GiveForks(int i, EForkState? leftFork, EForkState? rightFork, CancellationToken token)
+			{
+				var inbox = _inboxes[i];
+				while (inbox.Count > 0)
+				{
+					(int fork, EForkState state) = inbox.Receive();
+					(leftFork, rightFork) = ProcessMessage(i, leftFork, rightFork, fork, state);
+				}
+				return (leftFork, rightFork);
+			}
+
+			public async void Run(int i, CancellationToken token)
+			{
+				EForkState? leftFork = EForkState.Dirty;
+				forks[Left(i)] = i+1;
+				EForkState? rightFork = null;
+				var watch = new Stopwatch();
 				while (true)
 				{
-					await TakeForks();
+					watch.Restart();
+					(leftFork, rightFork) = await TakeForks(i, leftFork, rightFork, token);
+					forks[Left(i)] = i+1;
+					forks[Right(i)] = i+1;
+					_waitTime[i] += watch.ElapsedMilliseconds;
 
 					eatenFood[i] = (eatenFood[i] + 1) % (int.MaxValue - 1);
 					leftFork = EForkState.Dirty;
 					rightFork = EForkState.Dirty;
 
-					GiveForks();
+					watch.Restart();
+					(leftFork, rightFork) = GiveForks(i, leftFork, rightFork, token);
+					_waitTime[i] += watch.ElapsedMilliseconds;
 
 					Think(i);
 
 					if (token.IsCancellationRequested) break;
 				}
-				*/
 			}
 		}
 	}
